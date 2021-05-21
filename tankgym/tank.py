@@ -29,22 +29,17 @@ np.set_printoptions(threshold=20, precision=3, suppress=True, linewidth=200)
 RENDER_MODE = True
 
 MAX_MOVE = 5.0
-GOOD_COLOR = (35, 93, 188)
-BAD_COLOR = (255, 236, 0)
-BACKGROUND_COLOR = (11, 16, 19)
+BACKGROUND_COLOR = (255, 255, 255)
 PLAYER_RAD = 3
-COOLDOWN = 20
+COOLDOWN = 30
 MAX_SPEED = 10
 MAX_SPEED_SQUARED = MAX_SPEED * MAX_SPEED
 BULLET_RADIUS = 1
 
-AGENT_LEFT_COLOR = (35, 93, 188)
-AGENT_RIGHT_COLOR = (255, 236, 0)
-PIXEL_AGENT_LEFT_COLOR = (255, 191, 0) # AMBER
-PIXEL_AGENT_RIGHT_COLOR = (255, 191, 0) # AMBER
+AGENT_LEFT_COLOR = (255, 0, 0)
+AGENT_RIGHT_COLOR = (0,232,255)
 
-BACKGROUND_COLOR = (11, 16, 19)
-FENCE_COLOR = (102, 56, 35)
+FENCE_COLOR = (255, 255, 255)
 COIN_COLOR = FENCE_COLOR
 GROUND_COLOR = (116, 114, 117)
 
@@ -57,12 +52,13 @@ REF_WALL_WIDTH = 1.0 # wall width
 REF_WALL_HEIGHT = 3.5
 PLAYER_SPEED_X = 10*1.75
 PLAYER_SPEED_Y = 10*1.35
-MAX_BALL_SPEED = 15*1.5
+MAX_BALL_SPEED = 10*1.5
 TIMESTEP = 1/30.
 NUDGE = 0.1
 FRICTION = 1.0 # 1 means no FRICTION, less means FRICTION
-INIT_DELAY_FRAMES = 30
-GRAVITY = -9.8*2*1.5
+
+MAX_BULLETS = math.ceil((BULLET_RADIUS * 2 + math.sqrt(2) * REF_W)/(MAX_BALL_SPEED * COOLDOWN))
+BULLET_SPREAD = 0
 
 MAXLIVES = 5 # game ends when one agent loses this many games
 
@@ -98,8 +94,6 @@ def setPixelObsMode():
   WINDOW_WIDTH = PIXEL_WIDTH * PIXEL_SCALE
   WINDOW_HEIGHT = PIXEL_HEIGHT * PIXEL_SCALE
   FACTOR = WINDOW_WIDTH / REF_W
-  AGENT_LEFT_COLOR = PIXEL_AGENT_LEFT_COLOR
-  AGENT_RIGHT_COLOR = PIXEL_AGENT_RIGHT_COLOR
 
 def upsize_image(img):
   return cv2.resize(img, (PIXEL_WIDTH * PIXEL_SCALE, PIXEL_HEIGHT * PIXEL_SCALE), interpolation=cv2.INTER_NEAREST)
@@ -186,7 +180,7 @@ class Bullet:
     if (self.x >= (REF_W/2+self.r)):
       return True
 
-    if (self.y<=(-self.r+REF_U)):
+    if (self.y<=(-self.r)):
       return True
     if (self.y >= (REF_H+self.r)):
       return True
@@ -199,16 +193,46 @@ class Bullet:
     r = self.r+p.r
     return (r*r > self.getDist2(p)) # if distance is less than total radius, then colliding.
 
-class Wall:
-  """ used for the fence, and also the ground """
-  def __init__(self, x, y, w, h, c):
-    self.x = x;
-    self.y = y;
-    self.w = w;
-    self.h = h;
-    self.c = c
-  def display(self, canvas):
-    return rect(canvas, toX(self.x-self.w/2), toY(self.y+self.h/2), toP(self.w), toP(self.h), color=self.c)
+class RelativeState:
+  """
+  keeps track of the obs.
+  Note: the observation is from the perspective of the agent.
+  an agent playing either side of the fence must see obs the same way
+  """
+  def __init__(self):
+    # agent
+    self.x = 0
+    self.y = 0
+    self.vx = 0
+    self.vy = 0
+    self.life = 0
+    self.cooldown = 0
+    # opponent
+    self.ox = 0
+    self.oy = 0
+    self.ovx = 0
+    self.ovy = 0
+    self.olife = 0
+    self.ocooldown = 0
+    self.myballs = []
+    self.oppballs = []
+
+  def getObservation(self):
+    result = [self.x, self.y, self.vx, self.vy, self.life, self.cooldown,
+              self.ox, self.oy, self.ovx, self.ovy, self.olife, self.ocooldown]
+    for i in range(MAX_BULLETS):
+        if len(self.myballs) <= i:
+            result += [0, 0, 0, 0]
+        else:
+            result += [self.myballs[i][0], self.myballs[i][1], self.myballs[i][2], self.myballs[i][3]]
+    for i in range(MAX_BULLETS):
+        if len(self.oppballs) <= i:
+            result += [0, 0, 0, 0]
+        else:
+            result += [self.oppballs[i][0], self.oppballs[i][1], self.oppballs[i][2], self.oppballs[i][3]]
+    scaleFactor = 10.0  # scale inputs to be in the order of magnitude of 10 for neural network.
+    result = np.array(result) / scaleFactor
+    return result
 
 class Agent:
   """ keeps track of the agent in the game. note this is not the policy network """
@@ -220,6 +244,7 @@ class Agent:
     self.c = c
     self.vx = 0
     self.vy = 0
+    self.state = RelativeState()
     self.life = MAXLIVES
     self.cooldown = COOLDOWN
     self.primedbullet = None
@@ -232,9 +257,9 @@ class Agent:
           self.vx /= toDivide
           self.vy /= toDivide
   def setAction(self, action):
+      action[2] += np.random.uniform(-BULLET_SPREAD, BULLET_SPREAD)
       self.vx += math.cos(action[0]) * action[1]
       self.vy += math.sin(action[0]) * action[1]
-      self.normalizeSpeed()
       if self.cooldown == 0 and action[3] > 0.5:
           self.cooldown = COOLDOWN
           dx = math.cos(action[2])
@@ -244,6 +269,9 @@ class Agent:
           vx = dx * MAX_BALL_SPEED
           vy = dy * MAX_BALL_SPEED
           self.primedbullet = Bullet(x, y, vx, vy, BULLET_RADIUS, self.c)
+          # self.vx -= vx
+          # self.vy -= vy
+      self.normalizeSpeed()
 
   def move(self):
     self.x += self.vx * TIMESTEP
@@ -263,19 +291,49 @@ class Agent:
       self.vx *= -FRICTION;
       self.x = REF_W/2-self.r-NUDGE*TIMESTEP
 
-    if (self.y<=(self.r+REF_U)):
+    if (self.y<=(self.r)):
       self.vy *= -FRICTION
-      self.y = self.r+REF_U+NUDGE*TIMESTEP
+      self.y = self.r+NUDGE*TIMESTEP
     if (self.y >= (REF_H-self.r)):
       self.vy *= -FRICTION
       self.y = REF_H-self.r-NUDGE*TIMESTEP
+
+  def getDist2(self, p): # returns distance squared from p
+    dy = p.y - self.y
+    dx = p.x - self.x
+    return (dx*dx+dy*dy)
+  def isColliding(self, p): # returns true if it is colliding w/ p
+    r = self.r+p.r
+    return (r*r > self.getDist2(p)) # if distance is less than total radius, then colliding.
 
   def update(self):
     self.checkEdges()
     self.move()
 
+  def updateState(self, opponent, myballs, oppballs):
+    """ normalized to side, appears different for each agent's perspective"""
+    # agent's self
+    self.state.x = self.x
+    self.state.y = self.y
+    self.state.vx = self.vx
+    self.state.vy = self.vy
+    self.state.life = self.life
+    self.state.cooldown = self.cooldown
+    # opponent
+    self.state.ox = opponent.x
+    self.state.oy = opponent.y
+    self.state.ovx = opponent.vx
+    self.state.ovy = opponent.vy
+    self.state.olife = opponent.life
+    self.state.ocooldown = opponent.cooldown
+    self.state.myballs = []
+    for ball in myballs:
+        self.state.myballs += [(ball.x, ball.y, ball.vx, ball.vy)]
+    self.state.oppballs = []
+    for ball in oppballs:
+        self.state.oppballs += [(ball.x, ball.y, ball.vx, ball.vy)]
   def getObservation(self):
-      return None
+    return self.state.getObservation()
 
   def display(self, canvas):
     x = self.x
@@ -286,27 +344,51 @@ class Agent:
 
     # draw coins (lives) left
     for i in range(1, self.life+1):
-      canvas = circle(canvas, toX(self.dir*(REF_W/2+0.5-i*2.)), WINDOW_HEIGHT-toY(1.5), toP(0.5), color=COIN_COLOR)
+      canvas = circle(canvas, toX(x+PLAYER_RAD-i*1), toY(y), toP(0.5), color=COIN_COLOR)
 
     return canvas
 
 class BaselinePolicy:
   """ Tiny RNN policy with only 120 parameters of otoro.net/slimevolley agent """
   def __init__(self):
+    self.inputState = None
     pass
   def reset(self):
     pass
   def _forward(self):
     pass
   def _setInputState(self, obs):
-    pass
+    self.inputState = obs
   def _getAction(self):
-    return ACTION_SPACE.sample()
+    dy = self.inputState[7] - self.inputState[1]
+    dx = self.inputState[6] - self.inputState[0]
+    degreeToFace = math.atan2(dy, dx)
+    return [0, 0, degreeToFace, 1]
   def predict(self, obs):
     """ take obs, update rnn state, return action """
     self._setInputState(obs)
     self._forward()
     return self._getAction()
+  def getName(self):
+    return "Aim_no_move"
+
+class BaselineRand(BaselinePolicy):
+  def _getAction(self):
+    values = ACTION_SPACE.sample()
+    return values
+  def getName(self):
+    return "Random_actions"
+
+class BaselineRandWAim(BaselinePolicy):
+  def _getAction(self):
+    values = ACTION_SPACE.sample()
+    dy = self.inputState[7] - self.inputState[1]
+    dx = self.inputState[6] - self.inputState[0]
+    degreeToFace = math.atan2(dy, dx)
+    values[2] = degreeToFace
+    return values
+  def getName(self):
+      return "Aim_w_Randmove"
 
 class Game:
   """
@@ -321,17 +403,32 @@ class Game:
     self.agent_good = None
     self.np_random = np_random
     self.reset()
-
+  def randRange(self, low, high):
+    return self.np_random.uniform(low, high)
   def reset(self):
     self.bullets_good = []
     self.bullets_bad = []
-    self.ground = Wall(0, 0.75, REF_W, REF_U, c=GROUND_COLOR)
-    self.agent_bad = Agent(-1, -REF_W/4, 1.5, c=AGENT_LEFT_COLOR)
-    self.agent_good = Agent(1, REF_W/4, 1.5, c=AGENT_RIGHT_COLOR)
+    self.agent_bad = Agent(-1, self.randRange(PLAYER_RAD-REF_W/2, REF_W/2 - PLAYER_RAD), self.randRange(PLAYER_RAD, REF_H - PLAYER_RAD), c=AGENT_LEFT_COLOR)
+    self.agent_good = Agent(1, self.randRange(PLAYER_RAD-REF_W/2, REF_W/2 - PLAYER_RAD), self.randRange(PLAYER_RAD, REF_H - PLAYER_RAD), c=AGENT_RIGHT_COLOR)
+    while self.agent_good.isColliding(self.agent_bad):
+        self.agent_good = Agent(1, self.randRange(PLAYER_RAD-REF_W/2, REF_W/2 - PLAYER_RAD), self.randRange(PLAYER_RAD, REF_H - PLAYER_RAD), c=AGENT_RIGHT_COLOR)
 
   def newMatch(self):
-    self.bullets_good = []
-    self.bullets_bad = []
+    reset()
+
+  def fix_bullet_intersection(self):
+    for i in range(len(self.bullets_good)):
+        goodbullet = self.bullets_good[i]
+        for j in range(len(self.bullets_bad)):
+            badbullet = self.bullets_bad[j]
+            if badbullet.isColliding(goodbullet):
+                if self.np_random.rand() < 0.5:
+                    del self.bullets_bad[j]
+                else:
+                    del self.bullets_good[i]
+                return False
+    return True
+
   def step(self):
     """ main game loop """
     self.agent_good.update()
@@ -353,6 +450,10 @@ class Game:
         bullet.move()
     self.bullets_bad = [bullet for bullet in self.bullets_bad if not bullet.outOfBounds()]
 
+    while True:
+        if self.fix_bullet_intersection():
+            break
+
     for i in range(len(self.bullets_good)):
         goodbullet = self.bullets_good[i]
         if goodbullet.isColliding(self.agent_bad):
@@ -366,9 +467,15 @@ class Game:
             self.agent_good.life -= 1
             del self.bullets_bad[i]
             break
+    if self.agent_bad.isColliding(self.agent_good):
+        self.agent_good.life = 0
+        self.agent_bad.life = 0
+
+    self.agent_good.updateState(self.agent_bad, self.bullets_good, self.bullets_bad)
+    self.agent_bad.updateState(self.agent_good, self.bullets_bad, self.bullets_good)
 
     isTie = self.agent_bad.life == 0 and self.agent_good.life == 0
-    return 0 if isTie else -100 if self.agent_good.life == 0 else 100 if self.agent_good.life == 0 else 0
+    return 0 if isTie else -100 if self.agent_good.life == 0 else 100 if self.agent_bad.life == 0 else 0
   def display(self, canvas):
     # background color
     # if PIXEL_MODE is True, canvas is an RGB array.
@@ -380,7 +487,6 @@ class Game:
         canvas = bullet.display(canvas)
     for bullet in self.bullets_bad:
         canvas = bullet.display(canvas)
-    canvas = self.ground.display(canvas)
     return canvas
 
 class TankGymEnv(gym.Env):
@@ -443,7 +549,8 @@ class TankGymEnv(gym.Env):
       self.observation_space = spaces.Box(low=0, high=255,
         shape=(PIXEL_HEIGHT, PIXEL_WIDTH, 3), dtype=np.uint8)
     else:
-      pass
+      high = np.array([np.finfo(np.float32).max] * (12 + 8 * MAX_BULLETS))
+      self.observation_space = spaces.Box(-high, high)
     self.canvas = None
     self.previous_rgbarray = None
 
@@ -465,7 +572,7 @@ class TankGymEnv(gym.Env):
       obs = self.render(mode='state')
       self.canvas = obs
     else:
-      obs = None
+      obs = self.game.agent_good.getObservation()
     return obs
 
   def step(self, action, otherAction=None):
@@ -500,7 +607,10 @@ class TankGymEnv(gym.Env):
     otherObs = None
     if self.multiagent:
       if self.from_pixels:
-        otherObs = cv2.flip(obs, 1) # horizontal flip
+        goodmask = np.all(obs == AGENT_LEFT_COLOR, axis=-1)
+        badmask = np.all(obs == AGENT_RIGHT_COLOR, axis=-1)
+        obs[goodmask] = AGENT_RIGHT_COLOR
+        obs[badmask] = AGENT_LEFT_COLOR
       else:
         otherObs = self.game.agent_good.getObservation()
 
@@ -646,4 +756,9 @@ def multiagent_rollout(env, policy_right, policy_left, render_mode=False):
 register(
     id='TankGym-v0',
     entry_point='tankgym.tank:TankGymEnv'
+)
+
+register(
+    id='TankGymPixel-v0',
+    entry_point='tankgym.tank:TankGymPixelEnv'
 )

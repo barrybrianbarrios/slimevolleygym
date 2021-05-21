@@ -13,7 +13,7 @@ np.set_printoptions(threshold=20, precision=3, suppress=True, linewidth=200)
 
 # game settings:
 
-RENDER_MODE = True
+RENDER_MODE = False
 
 
 if __name__=="__main__":
@@ -62,10 +62,12 @@ if __name__=="__main__":
     if k == key.A:     otherManualAction[1] = 0
     if k == key.W:     otherManualAction[2] = 0
 
-  policy = tankgym.BaselinePolicy() # defaults to use RNN Baseline for player
+  policy = tankgym.BaselineRandWAim() # defaults to use RNN Baseline for player
 
   env = gym.make("TankGym-v0")
   env.seed(np.random.randint(0, 10000))
+
+  env.policy = tankgym.BaselineRandWAim()
   #env.seed(689)
 
   if RENDER_MODE:
@@ -80,29 +82,43 @@ if __name__=="__main__":
   action = np.array([0, 0, 0])
 
   done = False
+  numgames = 500
+  rewards = []
+  for game in range(numgames):
+      env.reset()
+      done = False
+      while not done:
 
-  while not done:
+        if manualMode: # override with keyboard
+          action = manualAction
+        else:
+          action = policy.predict(obs)
 
-    if manualMode: # override with keyboard
-      action = manualAction
-    else:
-      action = policy.predict(obs)
+        if otherManualMode:
+          otherAction = otherManualAction
+          obs, reward, done, _ = env.step(action, otherAction)
+        else:
+          obs, reward, done, _ = env.step(action)
 
-    if otherManualMode:
-      otherAction = otherManualAction
-      obs, reward, done, _ = env.step(action, otherAction)
-    else:
-      obs, reward, done, _ = env.step(action)
+        if reward > 0 or reward < 0:
+          manualMode = False
+          otherManualMode = False
 
-    if reward > 0 or reward < 0:
-      manualMode = False
-      otherManualMode = False
+        total_reward += reward
 
-    total_reward += reward
+        if done:
+            rewards += [reward]
 
-    if RENDER_MODE:
-      env.render()
-      sleep(0.02) # 0.01
+        if RENDER_MODE:
+          env.render()
+          sleep(0.02) # 0.01
 
   env.close()
   print("cumulative score", total_reward)
+
+  print("games:", policy.getName(), "vs", env.policy.getName())
+  print("mean:", np.mean(rewards))
+  print("variance:", np.var(rewards))
+  print("std:", np.std(rewards))
+  print("numwin:", len([x for x in rewards if x == 100]))
+  print("numlose:", len([x for x in rewards if x == -100]))
