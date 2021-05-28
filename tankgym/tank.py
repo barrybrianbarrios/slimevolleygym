@@ -22,19 +22,19 @@ import numpy as np
 import cv2 # installed with gym anyways
 from collections import deque
 
-np.set_printoptions(threshold=20, precision=3, suppress=True, linewidth=200)
+np.set_printoptions(threshold=30, precision=3, suppress=True, linewidth=200)
 
 # game settings:
 
-RENDER_MODE = True
+RENDER = False
 
 MAX_MOVE = 5.0
 BACKGROUND_COLOR = (255, 255, 255)
-PLAYER_RAD = 3
+PLAYER_RAD = 3.0
 COOLDOWN = 30
-MAX_SPEED = 10
+MAX_SPEED = 10.0
 MAX_SPEED_SQUARED = MAX_SPEED * MAX_SPEED
-BULLET_RADIUS = 1
+BULLET_RADIUS = 1.0
 
 AGENT_LEFT_COLOR = (255, 0, 0)
 AGENT_RIGHT_COLOR = (0,232,255)
@@ -43,24 +43,22 @@ FENCE_COLOR = (255, 255, 255)
 COIN_COLOR = FENCE_COLOR
 GROUND_COLOR = (116, 114, 117)
 
-ACTION_SPACE = spaces.Box(low = np.array([0,0,0,0]), high = np.array([2*math.pi,MAX_MOVE,2*math.pi,1]), dtype = np.float32)
+ACTION_SPACE = spaces.Box(low = np.array([-5 * math.pi,-MAX_MOVE,-5 * math.pi,-1]), high = np.array([5 * math.pi,MAX_MOVE,5 * math.pi,1]), dtype = np.float32)
 
 REF_W = 24*2
 REF_H = REF_W
-REF_U = 1.5 # ground height
-REF_WALL_WIDTH = 1.0 # wall width
-REF_WALL_HEIGHT = 3.5
-PLAYER_SPEED_X = 10*1.75
-PLAYER_SPEED_Y = 10*1.35
-MAX_BALL_SPEED = 10*1.5
+BALL_SPEED = 40
+MIN_BALL_SPEED = BALL_SPEED - MAX_SPEED
 TIMESTEP = 1/30.
 NUDGE = 0.1
 FRICTION = 1.0 # 1 means no FRICTION, less means FRICTION
 
-MAX_BULLETS = math.ceil((BULLET_RADIUS * 2 + math.sqrt(2) * REF_W)/(MAX_BALL_SPEED * COOLDOWN))
+MAX_DIST = math.sqrt(2) * REF_W
+
+MAX_BULLETS = math.ceil((BULLET_RADIUS * 2 + MAX_DIST)/(MIN_BALL_SPEED * TIMESTEP * COOLDOWN))
 BULLET_SPREAD = 0
 
-MAXLIVES = 5 # game ends when one agent loses this many games
+MAXLIVES = 3 # game ends when one agent loses this many games
 
 WINDOW_WIDTH = 500
 WINDOW_HEIGHT = 500
@@ -217,21 +215,66 @@ class RelativeState:
     self.myballs = []
     self.oppballs = []
 
+  def convertTheta(self, theta):
+    theta = math.fmod(theta, math.pi * 2)
+    if theta > math.pi:
+        theta -= math.pi * 2
+    elif theta < -math.pi:
+        theta += math.pi * 2
+    return theta / math.pi
+
   def getObservation(self):
-    result = [self.x, self.y, self.vx, self.vy, self.life, self.cooldown,
-              self.ox, self.oy, self.ovx, self.ovy, self.olife, self.ocooldown]
+    dy = self.oy - self.y
+    dx = self.ox - self.x
+    degreeToFace = math.atan2(dy, dx)
+    dvy = (self.ovy - self.vy)
+    dvx = (self.ovx - self.vx)
+    l = math.sqrt(dx * dx + dy * dy)
+    L = dx * dvy - dy * dvx
+    S = dx * dvx + dy * dvy
+    sqs = dvx * dvx + dvy * dvy
+    C = -L/sqs if sqs > 0.1 else 0
+    t = (dvx * C - dy) / dvy if sqs > 0.1 else 0
+    r = abs(L) / math.sqrt(sqs) if sqs > 0.1 else 0
+    result = [self.x/REF_W * 2, self.y / REF_H - 0.5, self.vx/MAX_SPEED, self.vy/MAX_SPEED, self.life/MAXLIVES - 0.5, self.cooldown / COOLDOWN - 0.5,
+              l / MAX_DIST, L /MAX_DIST / MAX_SPEED, S / MAX_DIST / MAX_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5, self.olife/MAXLIVES -0.5, self.ocooldown / COOLDOWN - 0.5]
     for i in range(MAX_BULLETS):
         if len(self.myballs) <= i:
-            result += [0, 0, 0, 0]
+            result += [0, 0, 0, 0, 0, 0]
         else:
-            result += [self.myballs[i][0], self.myballs[i][1], self.myballs[i][2], self.myballs[i][3]]
+            dy = self.myballs[i][1] - self.y
+            dx = self.myballs[i][0] - self.x
+            dvy = self.myballs[i][3] - self.vy
+            dvx = self.myballs[i][2] - self.vx
+            theta = math.atan2(dy, dx) - degreeToFace
+            l = math.sqrt(dx * dx + dy * dy)
+            L = dx * dvy - dy * dvx
+            S = dx * dvx + dy * dvy
+            sqs = dvx * dvx + dvy * dvy
+            C = -L/sqs if sqs > 0.1 else 0
+            t = (dvx * C - dy) / dvy if sqs > 0.1 else 0
+            r = abs(L) / math.sqrt(sqs) if sqs > 0.1 else 0
+            result += [self.convertTheta(theta), l / MAX_DIST, L /MAX_DIST / BALL_SPEED, S / MAX_DIST / BALL_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5]
     for i in range(MAX_BULLETS):
         if len(self.oppballs) <= i:
-            result += [0, 0, 0, 0]
+            result += [0, 0, 0, 0, 0, 0]
         else:
-            result += [self.oppballs[i][0], self.oppballs[i][1], self.oppballs[i][2], self.oppballs[i][3]]
+            dy = self.oppballs[i][1] - self.y
+            dx = self.oppballs[i][0] - self.x
+            dvy = self.oppballs[i][3] - self.vy
+            dvx = self.oppballs[i][2] - self.vx
+            theta = math.atan2(dy, dx) - degreeToFace
+            l = math.sqrt(dx * dx + dy * dy)
+            L = dx * dvy - dy * dvx
+            S = dx * dvx + dy * dvy
+            sqs = dvx * dvx + dvy * dvy
+            C = -L/sqs if sqs > 0.1 else 0
+            t = (dvx * C - dy) / dvy if sqs > 0.1 else 0
+            r = abs(L) / math.sqrt(sqs) if sqs > 0.1 else 0
+            result += [self.convertTheta(theta), l / MAX_DIST, L /MAX_DIST / BALL_SPEED, S / MAX_DIST / BALL_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5]
     scaleFactor = 10.0  # scale inputs to be in the order of magnitude of 10 for neural network.
-    result = np.array(result) / scaleFactor
+    result = np.array(result) * scaleFactor
+    # print(result, np.shape(result))
     return result
 
 class Agent:
@@ -248,6 +291,7 @@ class Agent:
     self.life = MAXLIVES
     self.cooldown = COOLDOWN
     self.primedbullet = None
+    self.dirpt = 0
   def lives(self):
     return self.life
   def normalizeSpeed(self):
@@ -257,21 +301,26 @@ class Agent:
           self.vx /= toDivide
           self.vy /= toDivide
   def setAction(self, action):
-      action[2] += np.random.uniform(-BULLET_SPREAD, BULLET_SPREAD)
-      self.vx += math.cos(action[0]) * action[1]
-      self.vy += math.sin(action[0]) * action[1]
-      if self.cooldown == 0 and action[3] > 0.5:
+      # print(action)
+      dy = self.state.oy - self.state.y
+      dx = self.state.ox - self.state.x
+      degreeToFace = math.atan2(dy, dx)
+      self.vx += math.cos(action[0]/5 + degreeToFace) * action[1]
+      self.vy += math.sin(action[0]/5 + degreeToFace) * action[1]
+      self.dirpt = degreeToFace + action[2]/5
+      self.normalizeSpeed()
+      if self.cooldown == 0 and action[3] > 0:
           self.cooldown = COOLDOWN
-          dx = math.cos(action[2])
-          dy = math.sin(action[2])
+          dx = math.cos(self.dirpt)
+          dy = math.sin(self.dirpt)
           x = self.x + (BULLET_RADIUS + self.r + .1) * dx
           y = self.y + (BULLET_RADIUS + self.r + .1) * dy
-          vx = dx * MAX_BALL_SPEED
-          vy = dy * MAX_BALL_SPEED
+          vx = self.vx + dx * BALL_SPEED
+          vy = self.vy + dy * BALL_SPEED
           self.primedbullet = Bullet(x, y, vx, vy, BULLET_RADIUS, self.c)
           # self.vx -= vx
           # self.vy -= vy
-      self.normalizeSpeed()
+
 
   def move(self):
     self.x += self.vx * TIMESTEP
@@ -360,10 +409,7 @@ class BaselinePolicy:
   def _setInputState(self, obs):
     self.inputState = obs
   def _getAction(self):
-    dy = self.inputState[7] - self.inputState[1]
-    dx = self.inputState[6] - self.inputState[0]
-    degreeToFace = math.atan2(dy, dx)
-    return [0, 0, degreeToFace, 1]
+    return [0, 0, 0, 1]
   def predict(self, obs):
     """ take obs, update rnn state, return action """
     self._setInputState(obs)
@@ -382,10 +428,7 @@ class BaselineRand(BaselinePolicy):
 class BaselineRandWAim(BaselinePolicy):
   def _getAction(self):
     values = ACTION_SPACE.sample()
-    dy = self.inputState[7] - self.inputState[1]
-    dx = self.inputState[6] - self.inputState[0]
-    degreeToFace = math.atan2(dy, dx)
-    values[2] = degreeToFace
+    values[2] = 0
     return values
   def getName(self):
       return "Aim_w_Randmove"
@@ -433,6 +476,10 @@ class Game:
     """ main game loop """
     self.agent_good.update()
     self.agent_bad.update()
+    extrareward = 0
+
+    truedir = math.atan2(self.agent_bad.y - self.agent_good.y, self.agent_bad.x - self.agent_good.x)
+    # extrareward += 0.5-abs(truedir-self.agent_good.dirpt)/(2*math.pi)
 
     if self.agent_good.primedbullet is not None:
         self.bullets_good.append(self.agent_good.primedbullet)
@@ -453,10 +500,13 @@ class Game:
     while True:
         if self.fix_bullet_intersection():
             break
+        else:
+            extrareward += 3
 
     for i in range(len(self.bullets_good)):
         goodbullet = self.bullets_good[i]
         if goodbullet.isColliding(self.agent_bad):
+            extrareward += 10
             self.agent_bad.life -= 1
             del self.bullets_good[i]
             break
@@ -464,18 +514,22 @@ class Game:
     for i in range(len(self.bullets_bad)):
         badbullet = self.bullets_bad[i]
         if badbullet.isColliding(self.agent_good):
+            extrareward -= 10
             self.agent_good.life -= 1
             del self.bullets_bad[i]
             break
+
     if self.agent_bad.isColliding(self.agent_good):
-        self.agent_good.life = 0
-        self.agent_bad.life = 0
+        minval = min(self.agent_good.life, self.agent_bad.life)
+        self.agent_good.life -= minval
+        self.agent_bad.life -= minval
+        extrareward += minval * 10 * (-1 if self.agent_bad.life > 0 else 1 if self.agent_good.life > 0 else 0)
 
     self.agent_good.updateState(self.agent_bad, self.bullets_good, self.bullets_bad)
     self.agent_bad.updateState(self.agent_good, self.bullets_bad, self.bullets_good)
 
     isTie = self.agent_bad.life == 0 and self.agent_good.life == 0
-    return 0 if isTie else -100 if self.agent_good.life == 0 else 100 if self.agent_bad.life == 0 else 0
+    return extrareward + (0 if isTie else -100 if self.agent_good.life == 0 else 100 if self.agent_bad.life == 0 else 0)
   def display(self, canvas):
     # background color
     # if PIXEL_MODE is True, canvas is an RGB array.
@@ -540,6 +594,7 @@ class TankGymEnv(gym.Env):
 
     self.t = 0
     self.t_limit = 3000
+    self.epnum = 0
 
     #self.action_space = spaces.Box(0, 1.0, shape=(3,))
     self.action_space = ACTION_SPACE
@@ -549,7 +604,7 @@ class TankGymEnv(gym.Env):
       self.observation_space = spaces.Box(low=0, high=255,
         shape=(PIXEL_HEIGHT, PIXEL_WIDTH, 3), dtype=np.uint8)
     else:
-      high = np.array([np.finfo(np.float32).max] * (12 + 8 * MAX_BULLETS))
+      high = np.array([np.finfo(np.float32).max] * (13 + 12 * MAX_BULLETS))
       self.observation_space = spaces.Box(-high, high)
     self.canvas = None
     self.previous_rgbarray = None
@@ -603,6 +658,7 @@ class TankGymEnv(gym.Env):
 
     if self.game.agent_good.life <= 0 or self.game.agent_bad.life <= 0:
       done = True
+      self.epnum += 1
 
     otherObs = None
     if self.multiagent:
@@ -622,6 +678,8 @@ class TankGymEnv(gym.Env):
       'otherState': self.game.agent_good.getObservation(),
     }
 
+    if self.epnum % 100 == 0 and RENDER:
+        self.render()
     return obs, reward, done, info
 
   def init_game_state(self):
