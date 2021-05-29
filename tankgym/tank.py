@@ -22,7 +22,7 @@ import numpy as np
 import cv2 # installed with gym anyways
 from collections import deque
 
-np.set_printoptions(threshold=30, precision=3, suppress=True, linewidth=200)
+# np.set_printoptions(threshold=50, precision=3, suppress=True, linewidth=200)
 
 # game settings:
 
@@ -238,14 +238,16 @@ class RelativeState:
     r = abs(L) / math.sqrt(sqs) if sqs > 0.1 else 0
     result = [self.x/REF_W * 2, self.y / REF_H - 0.5, self.vx/MAX_SPEED, self.vy/MAX_SPEED, self.life/MAXLIVES - 0.5, self.cooldown / COOLDOWN - 0.5,
               l / MAX_DIST, L /MAX_DIST / MAX_SPEED, S / MAX_DIST / MAX_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5, self.olife/MAXLIVES -0.5, self.ocooldown / COOLDOWN - 0.5]
+    myballs = []
     for i in range(MAX_BULLETS):
-        if len(self.myballs) <= i:
-            result += [0, 0, 0, 0, 0, 0]
+        if len(self.myballs) == 0:
+            myballs += [[0, 0, 0, 0, 0, 0]]
         else:
-            dy = self.myballs[i][1] - self.y
-            dx = self.myballs[i][0] - self.x
-            dvy = self.myballs[i][3] - self.vy
-            dvx = self.myballs[i][2] - self.vx
+            ball = self.myballs[i % len(self.myballs)]
+            dy = ball[1] - self.y
+            dx = ball[0] - self.x
+            dvy = ball[3] - self.vy
+            dvx = ball[2] - self.vx
             theta = math.atan2(dy, dx) - degreeToFace
             l = math.sqrt(dx * dx + dy * dy)
             L = dx * dvy - dy * dvx
@@ -254,15 +256,18 @@ class RelativeState:
             C = -L/sqs if sqs > 0.1 else 0
             t = (dvx * C - dy) / dvy if sqs > 0.1 else 0
             r = abs(L) / math.sqrt(sqs) if sqs > 0.1 else 0
-            result += [self.convertTheta(theta), l / MAX_DIST, L /MAX_DIST / BALL_SPEED, S / MAX_DIST / BALL_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5]
+            myballs += [[self.convertTheta(theta), l / MAX_DIST, L /MAX_DIST / BALL_SPEED, S / MAX_DIST / BALL_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5]]
+    for ball in myballs:    result += ball
+    oppballs = []
     for i in range(MAX_BULLETS):
-        if len(self.oppballs) <= i:
-            result += [0, 0, 0, 0, 0, 0]
+        if len(self.oppballs) == 0:
+            oppballs += [[0, 0, 0, 0, 0, 0]]
         else:
-            dy = self.oppballs[i][1] - self.y
-            dx = self.oppballs[i][0] - self.x
-            dvy = self.oppballs[i][3] - self.vy
-            dvx = self.oppballs[i][2] - self.vx
+            ball = self.oppballs[i % len(self.oppballs)]
+            dy = ball[1] - self.y
+            dx = ball[0] - self.x
+            dvy = ball[3] - self.vy
+            dvx = ball[2] - self.vx
             theta = math.atan2(dy, dx) - degreeToFace
             l = math.sqrt(dx * dx + dy * dy)
             L = dx * dvy - dy * dvx
@@ -271,7 +276,8 @@ class RelativeState:
             C = -L/sqs if sqs > 0.1 else 0
             t = (dvx * C - dy) / dvy if sqs > 0.1 else 0
             r = abs(L) / math.sqrt(sqs) if sqs > 0.1 else 0
-            result += [self.convertTheta(theta), l / MAX_DIST, L /MAX_DIST / BALL_SPEED, S / MAX_DIST / BALL_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5]
+            oppballs += [[self.convertTheta(theta), l / MAX_DIST, L /MAX_DIST / BALL_SPEED, S / MAX_DIST / BALL_SPEED, max(min(t, 2), -2) / 2, max(min(r, 10), -10) / 10 - 0.5]]
+    for ball in oppballs:    result += ball
     scaleFactor = 10.0  # scale inputs to be in the order of magnitude of 10 for neural network.
     result = np.array(result) * scaleFactor
     # print(result, np.shape(result))
