@@ -444,13 +444,14 @@ class Game:
   the main slime volley game.
   can be used in various settings, such as ai vs ai, ai vs human, human vs human
   """
-  def __init__(self, np_random=np.random):
+  def __init__(self, train_rewards, np_random=np.random):
     self.bullets_good = None
     self.bullets_bad = None
     self.ground = None
     self.agent_bad = None
     self.agent_good = None
     self.np_random = np_random
+    self.train_rewards = train_rewards
     self.reset()
   def randRange(self, low, high):
     return self.np_random.uniform(low, high)
@@ -535,7 +536,7 @@ class Game:
     self.agent_bad.updateState(self.agent_good, self.bullets_bad, self.bullets_good)
 
     isTie = self.agent_bad.life == 0 and self.agent_good.life == 0
-    return extrareward + (0 if isTie else -100 if self.agent_good.life == 0 else 100 if self.agent_bad.life == 0 else 0)
+    return (extrareward if self.train_rewards else 0) + (0 if isTie else -100 if self.agent_good.life == 0 else 100 if self.agent_bad.life == 0 else 0)
   def display(self, canvas):
     # background color
     # if PIXEL_MODE is True, canvas is an RGB array.
@@ -576,6 +577,7 @@ class TankGymEnv(gym.Env):
     'video.frames_per_second' : 50
   }
 
+  train_rewards = False
   from_pixels = False
   multiagent = True # optional args anyways
 
@@ -615,7 +617,7 @@ class TankGymEnv(gym.Env):
     self.canvas = None
     self.previous_rgbarray = None
 
-    self.game = Game()
+    self.game = Game(self.train_rewards)
     self.policy = BaselinePolicy() # the “bad guy”
 
     self.viewer = None
@@ -625,7 +627,7 @@ class TankGymEnv(gym.Env):
 
   def seed(self, seed=None):
     self.np_random, seed = seeding.np_random(seed)
-    self.game = Game(np_random=self.np_random)
+    self.game = Game(self.train_rewards, np_random=self.np_random)
     return [seed]
 
   def getObs(self):
@@ -746,6 +748,9 @@ class TankGymEnv(gym.Env):
 class TankGymPixelEnv(TankGymEnv):
   from_pixels = True
 
+class TankGymTrainEnv(TankGymEnv):
+  train_rewards = True
+
 class FrameStack(gym.Wrapper):
   def __init__(self, env, n_frames):
     """Stack n_frames last frames.
@@ -825,4 +830,9 @@ register(
 register(
     id='TankGymPixel-v0',
     entry_point='tankgym.tank:TankGymPixelEnv'
+)
+
+register(
+    id='TankGymTrain-v0',
+    entry_point='tankgym.tank:TankGymTrainEnv'
 )
