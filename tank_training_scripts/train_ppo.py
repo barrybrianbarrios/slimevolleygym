@@ -5,9 +5,8 @@
 
 import os
 import gym
-# import slimevolleygym
-# from slimevolleygym import SurvivalRewardEnv
 import tankgym
+import argparse
 
 from stable_baselines.ppo1 import PPO1
 from stable_baselines.common.policies import MlpPolicy
@@ -16,24 +15,37 @@ from stable_baselines.common.callbacks import EvalCallback
 
 NUM_TIMESTEPS = int(2e7)
 SEED = 721
+EVAL_SEED = 938
 EVAL_FREQ = 250000
-EVAL_EPISODES = 1000
-LOGDIR = "tank_ppo1" # moved to zoo afterwards.
+EVAL_EPISODES = 100
+
+parser = argparse.ArgumentParser(description='Options for PPO training')
+parser.add_argument('--logdir', help='Director of logging the ', type=str, default="ppo_default_log")
+args = parser.parse_args()
+
+LOGDIR = args.logdir
+print("***********")
+print("Logging to " + LOGDIR)
 
 logger.configure(folder=LOGDIR)
 
-env = gym.make("TankGymTrain-v0")
-env.seed(SEED)
-env.policy = tankgym.BaselineRandWAim()
+train_env = gym.make("TankGymTrain-v0")
+train_env.seed(SEED)
+train_env.policy = tankgym.BaselineRandWAim()
 
-# take mujoco hyperparams (but 4x timesteps_per_actorbatch to cover more steps.)
-model = PPO1(MlpPolicy, env, timesteps_per_actorbatch=8192, clip_param=0.2, entcoeff=0.0, optim_epochs=10,
+eval_env = gym.make("TankGym-v0")
+eval_env.seed(EVAL_SEED)
+eval_env.policy = tankgym.BaselineRandWAim()
+
+# take mujoco hyperparams (but 2x timesteps_per_actorbatch to cover more steps.)
+model = PPO1(MlpPolicy, train_env, timesteps_per_actorbatch=4096, clip_param=0.2, entcoeff=0.0, optim_epochs=10,
                  optim_stepsize=3e-4, optim_batchsize=64, gamma=0.99, lam=0.95, schedule='linear', verbose=2)
 
-eval_callback = EvalCallback(env, best_model_save_path=LOGDIR, log_path=LOGDIR, eval_freq=EVAL_FREQ, n_eval_episodes=EVAL_EPISODES)
+eval_callback = EvalCallback(eval_env, best_model_save_path=LOGDIR, log_path=LOGDIR, eval_freq=EVAL_FREQ, n_eval_episodes=EVAL_EPISODES)
 
 model.learn(total_timesteps=NUM_TIMESTEPS, callback=eval_callback)
 
 model.save(os.path.join(LOGDIR, "final_model")) # probably never get to this point.
 
-env.close()
+train_env.close()
+eval_env.close()
