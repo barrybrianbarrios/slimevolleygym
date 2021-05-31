@@ -22,7 +22,7 @@ LOGDIR = "tank_ppo1" # moved to zoo afterwards.
 
 logger.configure(folder=LOGDIR)
 
-env = gym.make("TankGym-v0")
+env = gym.make("TankGymTrain-v0")
 env.seed(SEED)
 env.policy = tankgym.BaselineRandWAim()
 
