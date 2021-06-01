@@ -21,9 +21,16 @@ EVAL_EPISODES = 100
 
 parser = argparse.ArgumentParser(description='Options for PPO training')
 parser.add_argument('--logdir', help='Director of logging the ', type=str, default="ppo_default_log")
+parser.add_argument('--batchnum', help='batchnum ', type=int, default=4096)
+parser.add_argument('--gamma', help='gamma ', type=float, default=0.99)
+parser.add_argument('--optim_stepsize', help='optim_stepsize ', type=float, default=3e-4)
 args = parser.parse_args()
 
 LOGDIR = args.logdir
+timesteps_per_actorbatch = args.batchnum
+optim_stepsize = args.optim_stepsize
+gamma = args.gamma
+
 print("***********")
 print("Logging to " + LOGDIR)
 
@@ -38,8 +45,8 @@ eval_env.seed(EVAL_SEED)
 eval_env.policy = tankgym.BaselineRandWAim()
 
 # take mujoco hyperparams (but 2x timesteps_per_actorbatch to cover more steps.)
-model = PPO1(MlpPolicy, train_env, timesteps_per_actorbatch=4096, clip_param=0.2, entcoeff=0.0, optim_epochs=10,
-                 optim_stepsize=3e-4, optim_batchsize=64, gamma=0.99, lam=0.95, schedule='linear', verbose=2)
+model = PPO1(MlpPolicy, train_env, timesteps_per_actorbatch=timesteps_per_actorbatch, clip_param=0.2, entcoeff=0.0, optim_epochs=10,
+                 optim_stepsize=optim_stepsize, optim_batchsize=64, gamma=gamma, lam=0.95, schedule='linear', verbose=2)
 
 eval_callback = EvalCallback(eval_env, best_model_save_path=LOGDIR, log_path=LOGDIR, eval_freq=EVAL_FREQ, n_eval_episodes=EVAL_EPISODES)
 
