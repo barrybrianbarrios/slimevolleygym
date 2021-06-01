@@ -18,7 +18,7 @@ from shutil import copyfile # keep track of generations
 # Settings
 SEED = 17
 EVAL_SEED = 293
-NUM_TIMESTEPS = int(1e9)
+NUM_TIMESTEPS = int(5e8)
 EVAL_FREQ = int(1e5)
 EVAL_EPISODES = int(5e2)
 BEST_THRESHOLD = 5 # must achieve a mean score above this to replace prev best self
@@ -115,7 +115,7 @@ def train():
 
   # take mujoco hyperparams (but doubled timesteps_per_actorbatch to cover more steps.)
   model = PPO1(MlpPolicy, train_env, timesteps_per_actorbatch=4096, clip_param=0.2, entcoeff=0.0, optim_epochs=10,
-                   optim_stepsize=3e-4, optim_batchsize=64, gamma=0.99, lam=0.95, schedule='linear', verbose=2)
+                   optim_stepsize=3e-5, optim_batchsize=64, gamma=0.99, lam=0.95, schedule='linear', verbose=2)
 
   eval_callback = SelfPlayCallback(eval_env,
     best_model_save_path=LOGDIR,
