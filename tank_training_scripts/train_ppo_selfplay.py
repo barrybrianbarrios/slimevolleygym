@@ -50,7 +50,8 @@ class TankSelfPlayEnv(tankgym.TankGymEnv):
   def predict(self, obs): # the policy
     if self.best_model is None:
       if USE_STRONG_OPP:
-        return self.oppo_model.predict(obs)
+        action, _ = self.oppo_model.predict(obs)
+        return action
       return self.action_space.sample() # return a random action
     else:
       action, _ = self.best_model.predict(obs)
