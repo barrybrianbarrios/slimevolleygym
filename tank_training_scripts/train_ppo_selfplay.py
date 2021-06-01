@@ -27,8 +27,10 @@ RENDER_MODE = False # set this to false if you plan on running for full 1000 tri
 
 parser = argparse.ArgumentParser(description='Options for PPO self-play training')
 parser.add_argument('--logdir', help='Director of logging the ', type=str, default="ppo_selfplay_default")
+parser.add_argument('--strong_opp', action='store_true', help='start training with a strong opp', default=False)
 args = parser.parse_args()
 
+USE_STRONG_OPP = args.strong_opp
 LOGDIR = args.logdir
 print("***********")
 print("Logging to " + LOGDIR)
@@ -41,8 +43,14 @@ class TankSelfPlayEnv(tankgym.TankGymEnv):
     self.policy = self
     self.best_model = None
     self.best_model_filename = None
+    self.oppo_model = None
+    if USE_STRONG_OPP:
+      print("Using strong opp as a start point")
+      self.oppo_model = PPO1.load("ppo_small_stepsize/best_model.zip")
   def predict(self, obs): # the policy
     if self.best_model is None:
+      if USE_STRONG_OPP:
+        return self.oppo_model.predict(obs)
       return self.action_space.sample() # return a random action
     else:
       action, _ = self.best_model.predict(obs)
