@@ -676,14 +676,14 @@ class TankGymEnv(gym.Env):
         obs[goodmask] = AGENT_RIGHT_COLOR
         obs[badmask] = AGENT_LEFT_COLOR
       else:
-        otherObs = self.game.agent_good.getObservation()
+        otherObs = self.game.agent_bad.getObservation()
 
     info = {
       'ale.lives': self.game.agent_bad.lives(),
       'ale.otherLives': self.game.agent_good.lives(),
       'otherObs': otherObs,
-      'state': self.game.agent_bad.getObservation(),
-      'otherState': self.game.agent_good.getObservation(),
+      'state': self.game.agent_good.getObservation(),
+      'otherState': self.game.agent_bad.getObservation(),
     }
 
     if self.epnum % 100 == 0 and RENDER:

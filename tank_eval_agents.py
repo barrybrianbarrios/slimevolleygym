@@ -54,7 +54,7 @@ class PPOPolicy:
 class RandomPolicy(tankgym.BaselineRand):
   def __init__(self, path):
     super(RandomPolicy, self).__init__()
-      
+
 class BaselinePolicy(tankgym.BaselineRandWAim):
   def __init__(self, path):
     super(BaselinePolicy, self).__init__()
@@ -62,6 +62,7 @@ class BaselinePolicy(tankgym.BaselineRandWAim):
 def rollout(env, policy0, policy1, render_mode=False):
   """ play one agent vs the other in modified gym-style loop. """
   obs0 = env.reset()
+  env.policy = policy1
   obs1 = obs0 # same observation at the very beginning for the other agent
 
   done = False
@@ -71,11 +72,11 @@ def rollout(env, policy0, policy1, render_mode=False):
   while not done:
 
     action0 = policy0.predict(obs0)
-    action1 = policy1.predict(obs1)
+    # action1 = policy1.predict(obs1)
 
     # uses a 2nd (optional) parameter for step to put in the other action
     # and returns the other observation in the 4th optional "info" param in gym's step()
-    obs0, reward, done, info = env.step(action0, action1)
+    obs0, reward, done, info = env.step(action0)
     obs1 = info['otherObs']
 
     total_reward += reward
@@ -171,5 +172,8 @@ if __name__=="__main__":
     render_mode=render_mode, n_trials=args.trials, init_seed=args.seed)
 
   print("history dump:", history)
-  print(c0+" scored", np.round(np.mean(history), 3), "±", np.round(np.std(history), 3), "vs",
+  print(c0+" scored", np.round(np.mean(history), 3), "±", np.round(np.std(history) / np.sqrt(args.trials), 3), "vs",
     c1, "over", args.trials, "trials.")
+  print("numwin:", len([x for x in history if x == 100]))
+  print("numtie:", len([x for x in history if x == 0]))
+  print("numlose:", len([x for x in history if x == -100]))
